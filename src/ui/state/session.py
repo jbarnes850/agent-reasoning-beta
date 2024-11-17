@@ -1,18 +1,19 @@
 """Session state management for the Agent Reasoning Beta platform."""
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
 from datetime import datetime, timedelta
+from typing import Dict, List, Optional
 
 import streamlit as st
 
-from core.types import ReasoningType, AgentRole
-from core.reasoning import MCTSNode, ReasoningPath, VerificationResult, ConsensusResult
+from core.reasoning import ConsensusResult, MCTSNode, ReasoningPath, VerificationResult
+from core.types import AgentRole, ReasoningType
 
 
 @dataclass
 class VisualizationState:
     """State for visualization settings."""
+
     zoom_level: float = 1.0
     pan_position: tuple[float, float] = (0.0, 0.0)
     selected_node: Optional[str] = None
@@ -24,6 +25,7 @@ class VisualizationState:
 @dataclass
 class ModelState:
     """State for model settings."""
+
     provider: str = "groq"
     model: str = "llama-3.1-70b-versatile"
     temperature: float = 0.7
@@ -58,18 +60,9 @@ class SessionState:
         # Visualization state
         st.session_state.viz_state = VisualizationState(
             color_scheme={
-                "mcts": {
-                    "node": "#1f77b4",
-                    "edge": "#7fcdbb"
-                },
-                "verification": {
-                    "node": "#2ecc71",
-                    "edge": "#a1d99b"
-                },
-                "consensus": {
-                    "node": "#9b59b6",
-                    "edge": "#bcbddc"
-                }
+                "mcts": {"node": "#1f77b4", "edge": "#7fcdbb"},
+                "verification": {"node": "#2ecc71", "edge": "#a1d99b"},
+                "consensus": {"node": "#9b59b6", "edge": "#bcbddc"},
             }
         )
 
@@ -93,7 +86,7 @@ class SessionState:
 
         # Clean up visualization data older than 1 hour
         for key in list(st.session_state.keys()):
-            if key.startswith('viz_'):
+            if key.startswith("viz_"):
                 state = st.session_state[key]
                 if isinstance(state, VisualizationState):
                     if (now - state.last_update) > timedelta(hours=1):
@@ -101,7 +94,8 @@ class SessionState:
 
         # Clean up cache entries older than 30 minutes
         expired_keys = [
-            key for key, timestamp in st.session_state.cache_timestamps.items()
+            key
+            for key, timestamp in st.session_state.cache_timestamps.items()
             if (now - timestamp) > timedelta(minutes=30)
         ]
         for key in expired_keys:
@@ -174,10 +168,9 @@ class SessionState:
     def log_metric(self, metric_type: str, value: float):
         """Log a metric value."""
         if metric_type in st.session_state.metrics:
-            st.session_state.metrics[metric_type].append({
-                "timestamp": datetime.now().isoformat(),
-                "value": value
-            })
+            st.session_state.metrics[metric_type].append(
+                {"timestamp": datetime.now().isoformat(), "value": value}
+            )
 
     def reset_visualization(self):
         """Reset visualization state to defaults."""
@@ -196,14 +189,14 @@ class SessionState:
             "visualization": {
                 "zoom_level": self.viz_state.zoom_level,
                 "pan_position": self.viz_state.pan_position,
-                "color_scheme": self.viz_state.color_scheme
+                "color_scheme": self.viz_state.color_scheme,
             },
             "model": {
                 "provider": self.model_state.provider,
                 "model": self.model_state.model,
                 "temperature": self.model_state.temperature,
                 "max_tokens": self.model_state.max_tokens,
-                "cost_tracking": self.model_state.cost_tracking
+                "cost_tracking": self.model_state.cost_tracking,
             },
-            "metrics": st.session_state.metrics
+            "metrics": st.session_state.metrics,
         }

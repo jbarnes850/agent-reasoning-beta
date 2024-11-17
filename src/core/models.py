@@ -20,15 +20,17 @@ from uuid import UUID
 
 import aiohttp
 import backoff
+from anthropic import AsyncAnthropic
 from groq import AsyncGroq
 from openai import AsyncOpenAI
-from anthropic import AsyncAnthropic
 from pydantic import BaseModel, Field, ValidationError
 
 from .types import ModelProvider, ReasoningType, ThoughtNode
 
+
 class ModelResponse(BaseModel):
     """Structured response from LLM models."""
+
     content: str
     confidence: float = Field(ge=0.0, le=1.0)
     metadata: Dict[str, Any] = Field(default_factory=dict)
@@ -37,21 +39,25 @@ class ModelResponse(BaseModel):
     model_name: str
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
+
 class PromptTemplate(BaseModel):
     """Template for generating prompts."""
+
     template: str
     variables: Dict[str, str] = Field(default_factory=dict)
     reasoning_type: ReasoningType
     max_tokens: int = 1000
     temperature: float = Field(ge=0.0, le=2.0, default=0.7)
-    
+
     def format(self, **kwargs: Any) -> str:
         """Format the template with provided variables."""
         variables = {**self.variables, **kwargs}
         return self.template.format(**variables)
 
+
 class ModelConfig(BaseModel):
     """Configuration for model behavior."""
+
     provider: ModelProvider
     model_name: str
     temperature: float = Field(ge=0.0, le=2.0, default=0.7)
@@ -64,29 +70,26 @@ class ModelConfig(BaseModel):
     api_key: Optional[str] = None
     cost_per_token: float = 0.0
 
+
 class BaseModelManager(ABC):
     """Abstract base class for model managers."""
-    
+
     def __init__(self, config: ModelConfig):
         self.config = config
         self._client = None
         self._templates: Dict[ReasoningType, PromptTemplate] = {}
         self._initialize_templates()
-    
+
     @abstractmethod
     async def initialize(self) -> None:
         """Initialize the model client."""
         pass
-    
+
     @abstractmethod
-    async def generate(
-        self,
-        prompt: str,
-        **kwargs: Any
-    ) -> ModelResponse:
+    async def generate(self, prompt: str, **kwargs: Any) -> ModelResponse:
         """Generate response from the model."""
         pass
-    
+
     def _initialize_templates(self) -> None:
         """Initialize prompt templates for different reasoning types."""
         self._templates = {
@@ -100,7 +103,7 @@ class BaseModelManager(ABC):
                 3. Logical connections and dependencies
                 
                 Respond with a structured analysis of the next reasoning step.""",
-                reasoning_type=ReasoningType.MCTS
+                reasoning_type=ReasoningType.MCTS,
             ),
             ReasoningType.VERIFICATION: PromptTemplate(
                 template="""Verify the logical consistency of the following reasoning path:
@@ -113,7 +116,7 @@ class BaseModelManager(ABC):
                 4. Strength of conclusions
                 
                 Provide a detailed verification analysis.""",
-                reasoning_type=ReasoningType.VERIFICATION
+                reasoning_type=ReasoningType.VERIFICATION,
             ),
             ReasoningType.CONSENSUS: PromptTemplate(
                 template="""Build consensus among these different perspectives:
@@ -126,49 +129,52 @@ class BaseModelManager(ABC):
                 4. Synthesis of key ideas
                 
                 Provide a unified perspective that incorporates the strongest elements.""",
-                reasoning_type=ReasoningType.CONSENSUS
-            )
+                reasoning_type=ReasoningType.CONSENSUS,
+            ),
         }
-    
+
     def get_template(self, reasoning_type: ReasoningType) -> PromptTemplate:
         """Get prompt template for specific reasoning type."""
         return self._templates[reasoning_type]
 
+
 class RateLimitError(Exception):
     """Raised when model API rate limit is exceeded."""
+
     pass
+
 
 class ModelProvider:
     """Base class for model providers."""
-    
+
     def __init__(self, config: ModelConfig):
         self.config = config
         self._session: Optional[aiohttp.ClientSession] = None
-    
+
     async def __aenter__(self):
         self._session = aiohttp.ClientSession()
         return self
-    
+
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self._session:
             await self._session.close()
-    
+
     @backoff.on_exception(
         backoff.expo,
         (aiohttp.ClientError, RateLimitError),
         max_tries=3,
-        jitter=backoff.full_jitter
+        jitter=backoff.full_jitter,
     )
     async def call_model(self, prompt: str) -> ModelResponse:
         """
         Call model API with automatic retries and error handling.
-        
+
         Args:
             prompt: Input prompt for the model
-            
+
         Returns:
             ModelResponse containing the model's output
-            
+
         Raises:
             RateLimitError: If rate limit is exceeded after retries
             aiohttp.ClientError: For other API errors
@@ -184,20 +190,21 @@ class ModelProvider:
         except Exception as e:
             print(f"Unexpected error calling model: {str(e)}")
             raise
-    
+
     async def _make_api_call(self, prompt: str) -> ModelResponse:
         """Make the actual API call. Implemented by subclasses."""
         raise NotImplementedError
 
+
 class GroqManager(BaseModelManager, ModelProvider):
     """Model manager for Groq."""
-    
+
     async def initialize(self) -> None:
         """Initialize Groq client."""
         if not self.config.api_key:
             raise ValueError("Groq API key not provided")
         self._client = AsyncGroq(api_key=self.config.api_key)
-    
+
     async def _make_api_call(self, prompt: str) -> ModelResponse:
         """Make the actual API call to Groq."""
         start_time = datetime.now()
@@ -207,37 +214,38 @@ class GroqManager(BaseModelManager, ModelProvider):
                 messages=[{"role": "user", "content": prompt}],
                 temperature=self.config.temperature,
                 max_tokens=self.config.max_tokens,
-                top_p=self.config.top_p
+                top_p=self.config.top_p,
             )
-            
+
             latency = (datetime.now() - start_time).total_seconds()
-            
+
             return ModelResponse(
                 content=response.choices[0].message.content,
                 confidence=self._calculate_confidence(response),
                 metadata={"provider": "groq"},
                 latency=latency,
                 token_usage=response.usage.model_dump(),
-                model_name=self.config.model_name
+                model_name=self.config.model_name,
             )
-            
+
         except Exception as e:
             raise ModelError(f"Groq generation failed: {str(e)}")
-    
+
     def _calculate_confidence(self, response: Any) -> float:
         """Calculate confidence score from Groq response."""
         # Implementation would analyze response properties
         return 0.8  # Placeholder
 
+
 class OpenAIManager(BaseModelManager, ModelProvider):
     """Model manager for OpenAI."""
-    
+
     async def initialize(self) -> None:
         """Initialize OpenAI client."""
         if not self.config.api_key:
             raise ValueError("OpenAI API key not provided")
         self._client = AsyncOpenAI(api_key=self.config.api_key)
-    
+
     async def _make_api_call(self, prompt: str) -> ModelResponse:
         """Make the actual API call to OpenAI."""
         start_time = datetime.now()
@@ -248,37 +256,38 @@ class OpenAIManager(BaseModelManager, ModelProvider):
                 temperature=self.config.temperature,
                 max_tokens=self.config.max_tokens,
                 presence_penalty=self.config.presence_penalty,
-                frequency_penalty=self.config.frequency_penalty
+                frequency_penalty=self.config.frequency_penalty,
             )
-            
+
             latency = (datetime.now() - start_time).total_seconds()
-            
+
             return ModelResponse(
                 content=response.choices[0].message.content,
                 confidence=self._calculate_confidence(response),
                 metadata={"provider": "openai"},
                 latency=latency,
                 token_usage=response.usage.model_dump(),
-                model_name=self.config.model_name
+                model_name=self.config.model_name,
             )
-            
+
         except Exception as e:
             raise ModelError(f"OpenAI generation failed: {str(e)}")
-    
+
     def _calculate_confidence(self, response: Any) -> float:
         """Calculate confidence score from OpenAI response."""
         # Implementation would analyze response properties
         return 0.8  # Placeholder
 
+
 class AnthropicManager(BaseModelManager, ModelProvider):
     """Model manager for Anthropic."""
-    
+
     async def initialize(self) -> None:
         """Initialize Anthropic client."""
         if not self.config.api_key:
             raise ValueError("Anthropic API key not provided")
         self._client = AsyncAnthropic(api_key=self.config.api_key)
-    
+
     async def _make_api_call(self, prompt: str) -> ModelResponse:
         """Make the actual API call to Anthropic."""
         start_time = datetime.now()
@@ -287,63 +296,67 @@ class AnthropicManager(BaseModelManager, ModelProvider):
                 model=self.config.model_name,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=self.config.max_tokens,
-                temperature=self.config.temperature
+                temperature=self.config.temperature,
             )
-            
+
             latency = (datetime.now() - start_time).total_seconds()
-            
+
             return ModelResponse(
                 content=response.content[0].text,
                 confidence=self._calculate_confidence(response),
                 metadata={"provider": "anthropic"},
                 latency=latency,
-                token_usage={"total_tokens": response.usage.input_tokens + response.usage.output_tokens},
-                model_name=self.config.model_name
+                token_usage={
+                    "total_tokens": response.usage.input_tokens
+                    + response.usage.output_tokens
+                },
+                model_name=self.config.model_name,
             )
-            
+
         except Exception as e:
             raise ModelError(f"Anthropic generation failed: {str(e)}")
-    
+
     def _calculate_confidence(self, response: Any) -> float:
         """Calculate confidence score from Anthropic response."""
         # Implementation would analyze response properties
         return 0.8  # Placeholder
 
+
 class ModelError(Exception):
     """Custom exception for model-related errors."""
+
     pass
+
 
 class ModelRegistry:
     """Registry for managing model instances."""
-    
+
     _managers: Dict[ModelProvider, Type[BaseModelManager]] = {
         ModelProvider.GROQ: GroqManager,
         ModelProvider.OPENAI: OpenAIManager,
-        ModelProvider.ANTHROPIC: AnthropicManager
+        ModelProvider.ANTHROPIC: AnthropicManager,
     }
-    
+
     def __init__(self):
         self._instances: Dict[str, BaseModelManager] = {}
-    
+
     async def get_manager(
-        self,
-        provider: ModelProvider,
-        config: ModelConfig
+        self, provider: ModelProvider, config: ModelConfig
     ) -> BaseModelManager:
         """Get or create model manager instance."""
         key = f"{provider.value}_{config.model_name}"
-        
+
         if key not in self._instances:
             manager_class = self._managers.get(provider)
             if not manager_class:
                 raise ValueError(f"Unsupported model provider: {provider}")
-                
+
             manager = manager_class(config)
             await manager.initialize()
             self._instances[key] = manager
-            
+
         return self._instances[key]
-    
+
     def clear(self) -> None:
         """Clear all manager instances."""
         self._instances.clear()

@@ -9,12 +9,13 @@ st.set_page_config(
     page_title="Agent Reasoning Beta",
     page_icon="🤖",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
 # Main content
 st.title("🤖 Agent Reasoning Beta")
-st.markdown("""
+st.markdown(
+    """
 Welcome to the Agent Reasoning Beta platform! This platform provides tools for:
 
 - 🎮 **Interactive Agent Experiments**: Run and visualize agent reasoning processes
@@ -32,15 +33,13 @@ Welcome to the Agent Reasoning Beta platform! This platform provides tools for:
 - [Documentation](docs/README.md)
 - [GitHub Repository](https://github.com/jbarnes850/agent-reasoning-beta)
 - [Issue Tracker](https://github.com/jbarnes850/agent-reasoning-beta/issues)
-""")
+"""
+)
 
 # System status
 st.sidebar.header("System Status")
 if st.session_state.get("experiment_running", False):
     st.sidebar.success("🟢 System Active")
-    st.sidebar.metric(
-        "Active Agents",
-        len(st.session_state.get("agents", []))
-    )
+    st.sidebar.metric("Active Agents", len(st.session_state.get("agents", [])))
 else:
     st.sidebar.info("⚪ System Idle")
