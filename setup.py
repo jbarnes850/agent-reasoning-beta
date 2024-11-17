@@ -8,7 +8,7 @@ setup(
     package_dir={"": "src"},
     packages=find_packages(where="src", exclude=["tests"]),
     include_package_data=True,
-    python_requires=">=3.11",
+    python_requires=">=3.12",
     install_requires=[
         "pydantic>=2.9.0",  # Using latest Pydantic for modern configuration style
         "numpy>=1.21.0",

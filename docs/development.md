@@ -3,7 +3,7 @@
 ## Getting Started
 
 ### Prerequisites
-- Python 3.11+
+- Python 3.12+
 - pip
 - git
 - virtualenv (recommended)

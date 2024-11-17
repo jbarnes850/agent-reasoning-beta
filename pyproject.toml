@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "agent-reasoning-beta"
 version = "0.1.0"
-description = "Multi-Agent Reasoning Visualization Platform"
+description = "Multi-Agent Reasoning Beta - Visualizing and Understanding Agent Reasoning Processes"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [
-    { name = "Codeium Engineering Team", email = "engineering@codeium.com" }
+    { name = "Jarrod Barnes", email = "jbarnes850@gmail.com" }
 ]
 keywords = ["llm", "agents", "visualization", "reasoning"]
 classifiers = [
@@ -18,15 +18,15 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Scientific/Engineering :: Visualization",
 ]
 
 [project.urls]
-Homepage = "https://github.com/codeium/agent-reasoning-beta"
-Repository = "https://github.com/codeium/agent-reasoning-beta"
-Documentation = "https://github.com/codeium/agent-reasoning-beta/docs"
+Homepage = "https://github.com/jbarnes850/agent-reasoning-beta"
+Repository = "https://github.com/jbarnes850/agent-reasoning-beta"
+Documentation = "https://github.com/jbarnes850/agent-reasoning-beta/docs"
 
 [tool.black]
 line-length = 88
@@ -39,7 +39,7 @@ multi_line_output = 3
 line_length = 88
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
