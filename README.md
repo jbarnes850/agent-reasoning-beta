@@ -167,18 +167,6 @@ We encourage using this tool for:
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgments
-
-- Codeium Engineering Team
-- Open source contributors
-- Academic and research partners
-
-## 📬 Contact
-
-- GitHub Issues: For bugs and feature requests
-- Discussions: For questions and community interaction
-- Email: engineering@codeium.com
-
 ---
 
-Built with ❤️ by the Codeium Engineering Team
+Built with ❤️ by NEAR AI
