@@ -62,6 +62,7 @@ class ModelConfig(BaseModel):
     timeout: float = 30.0
     retry_attempts: int = 3
     api_key: Optional[str] = None
+    cost_per_token: float = 0.0
 
 class BaseModelManager(ABC):
     """Abstract base class for model managers."""
@@ -133,7 +134,62 @@ class BaseModelManager(ABC):
         """Get prompt template for specific reasoning type."""
         return self._templates[reasoning_type]
 
-class GroqManager(BaseModelManager):
+class RateLimitError(Exception):
+    """Raised when model API rate limit is exceeded."""
+    pass
+
+class ModelProvider:
+    """Base class for model providers."""
+    
+    def __init__(self, config: ModelConfig):
+        self.config = config
+        self._session: Optional[aiohttp.ClientSession] = None
+    
+    async def __aenter__(self):
+        self._session = aiohttp.ClientSession()
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self._session:
+            await self._session.close()
+    
+    @backoff.on_exception(
+        backoff.expo,
+        (aiohttp.ClientError, RateLimitError),
+        max_tries=3,
+        jitter=backoff.full_jitter
+    )
+    async def call_model(self, prompt: str) -> ModelResponse:
+        """
+        Call model API with automatic retries and error handling.
+        
+        Args:
+            prompt: Input prompt for the model
+            
+        Returns:
+            ModelResponse containing the model's output
+            
+        Raises:
+            RateLimitError: If rate limit is exceeded after retries
+            aiohttp.ClientError: For other API errors
+        """
+        try:
+            response = await self._make_api_call(prompt)
+            return response
+        except aiohttp.ClientResponseError as e:
+            if e.status == 429:  # Rate limit error
+                raise RateLimitError("Rate limit exceeded")
+            print(f"Model API error: {str(e)}")
+            raise
+        except Exception as e:
+            print(f"Unexpected error calling model: {str(e)}")
+            raise
+    
+    async def _make_api_call(self, prompt: str) -> ModelResponse:
+        """Make the actual API call. Implemented by subclasses."""
+        raise NotImplementedError
+
+class GroqManager(BaseModelManager, ModelProvider):
     """Model manager for Groq."""
     
     async def initialize(self) -> None:
@@ -142,25 +198,16 @@ class GroqManager(BaseModelManager):
             raise ValueError("Groq API key not provided")
         self._client = AsyncGroq(api_key=self.config.api_key)
     
-    @backoff.on_exception(
-        backoff.expo,
-        (aiohttp.ClientError, TimeoutError),
-        max_tries=3
-    )
-    async def generate(
-        self,
-        prompt: str,
-        **kwargs: Any
-    ) -> ModelResponse:
-        """Generate response using Groq."""
+    async def _make_api_call(self, prompt: str) -> ModelResponse:
+        """Make the actual API call to Groq."""
         start_time = datetime.now()
         try:
             response = await self._client.chat.completions.create(
                 model=self.config.model_name,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=kwargs.get("temperature", self.config.temperature),
-                max_tokens=kwargs.get("max_tokens", self.config.max_tokens),
-                top_p=kwargs.get("top_p", self.config.top_p)
+                temperature=self.config.temperature,
+                max_tokens=self.config.max_tokens,
+                top_p=self.config.top_p
             )
             
             latency = (datetime.now() - start_time).total_seconds()
@@ -182,7 +229,7 @@ class GroqManager(BaseModelManager):
         # Implementation would analyze response properties
         return 0.8  # Placeholder
 
-class OpenAIManager(BaseModelManager):
+class OpenAIManager(BaseModelManager, ModelProvider):
     """Model manager for OpenAI."""
     
     async def initialize(self) -> None:
@@ -191,32 +238,17 @@ class OpenAIManager(BaseModelManager):
             raise ValueError("OpenAI API key not provided")
         self._client = AsyncOpenAI(api_key=self.config.api_key)
     
-    @backoff.on_exception(
-        backoff.expo,
-        (aiohttp.ClientError, TimeoutError),
-        max_tries=3
-    )
-    async def generate(
-        self,
-        prompt: str,
-        **kwargs: Any
-    ) -> ModelResponse:
-        """Generate response using OpenAI."""
+    async def _make_api_call(self, prompt: str) -> ModelResponse:
+        """Make the actual API call to OpenAI."""
         start_time = datetime.now()
         try:
             response = await self._client.chat.completions.create(
                 model=self.config.model_name,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=kwargs.get("temperature", self.config.temperature),
-                max_tokens=kwargs.get("max_tokens", self.config.max_tokens),
-                presence_penalty=kwargs.get(
-                    "presence_penalty",
-                    self.config.presence_penalty
-                ),
-                frequency_penalty=kwargs.get(
-                    "frequency_penalty",
-                    self.config.frequency_penalty
-                )
+                temperature=self.config.temperature,
+                max_tokens=self.config.max_tokens,
+                presence_penalty=self.config.presence_penalty,
+                frequency_penalty=self.config.frequency_penalty
             )
             
             latency = (datetime.now() - start_time).total_seconds()
@@ -238,7 +270,7 @@ class OpenAIManager(BaseModelManager):
         # Implementation would analyze response properties
         return 0.8  # Placeholder
 
-class AnthropicManager(BaseModelManager):
+class AnthropicManager(BaseModelManager, ModelProvider):
     """Model manager for Anthropic."""
     
     async def initialize(self) -> None:
@@ -247,24 +279,15 @@ class AnthropicManager(BaseModelManager):
             raise ValueError("Anthropic API key not provided")
         self._client = AsyncAnthropic(api_key=self.config.api_key)
     
-    @backoff.on_exception(
-        backoff.expo,
-        (aiohttp.ClientError, TimeoutError),
-        max_tries=3
-    )
-    async def generate(
-        self,
-        prompt: str,
-        **kwargs: Any
-    ) -> ModelResponse:
-        """Generate response using Anthropic."""
+    async def _make_api_call(self, prompt: str) -> ModelResponse:
+        """Make the actual API call to Anthropic."""
         start_time = datetime.now()
         try:
             response = await self._client.messages.create(
                 model=self.config.model_name,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=kwargs.get("max_tokens", self.config.max_tokens),
-                temperature=kwargs.get("temperature", self.config.temperature)
+                max_tokens=self.config.max_tokens,
+                temperature=self.config.temperature
             )
             
             latency = (datetime.now() - start_time).total_seconds()

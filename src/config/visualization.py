@@ -1,9 +1,9 @@
 """Visualization configuration for the Agent Reasoning Beta platform."""
 
 from typing import Dict, List, Tuple, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
-from core.types import AgentRole, ReasoningType
+from src.core.types import AgentRole, ReasoningType
 
 
 class BaseVisualizationConfig(BaseModel):
@@ -20,9 +20,7 @@ class BaseVisualizationConfig(BaseModel):
         description="Visualization height in pixels"
     )
     
-    class Config:
-        """Pydantic model configuration."""
-        validate_assignment = True
+    model_config = ConfigDict(validate_assignment=True)
 
 
 class TreeConfig(BaseVisualizationConfig):
@@ -185,3 +183,5 @@ class VisualizationConfig(BaseModel):
         default_factory=HeatmapConfig,
         description="Heatmap visualization configuration"
     )
+    
+    model_config = ConfigDict(validate_assignment=True)

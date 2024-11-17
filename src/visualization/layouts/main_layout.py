@@ -4,13 +4,44 @@ import streamlit as st
 from typing import Dict, List, Optional
 from datetime import datetime
 
-from core.types import ReasoningType, AgentRole
-from core.reasoning import MCTSNode, ReasoningPath, VerificationResult, ConsensusResult
-from visualization.components.exploration_view import ExplorationView
-from visualization.components.verification_view import VerificationView
-from visualization.components.consensus_view import ConsensusView
-from ui.state.session import SessionState
+from src.core.types import ReasoningType, AgentRole
+from src.core.reasoning import MCTSNode, ReasoningPath, VerificationResult, ConsensusResult
+from src.visualization.components.views.exploration_view import ExplorationView
+from src.visualization.components.views.verification_view import VerificationView
+from src.visualization.components.views.consensus_view import ConsensusView
+from src.ui.state.session import SessionState
 
+# Custom styles
+CUSTOM_CSS = """
+<style>
+    .stApp {
+        max-width: 1200px;
+        margin: 0 auto;
+    }
+    .main-header {
+        font-size: 2.5rem;
+        font-weight: 600;
+        margin-bottom: 1.5rem;
+    }
+    .section-header {
+        font-size: 1.8rem;
+        font-weight: 500;
+        margin: 2rem 0 1rem;
+    }
+    .info-box {
+        padding: 1rem;
+        border-radius: 0.5rem;
+        background-color: #f0f2f6;
+        margin: 1rem 0;
+    }
+    .metric-container {
+        background-color: white;
+        padding: 1.5rem;
+        border-radius: 0.5rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+</style>
+"""
 
 class MainLayout:
     """Main layout manager for the visualization platform."""
@@ -24,30 +55,48 @@ class MainLayout:
         self.exploration_view = ExplorationView()
         self.verification_view = VerificationView()
         self.consensus_view = ConsensusView()
+        
+        # Apply custom styles
+        st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
     
     def render_sidebar(self):
         """Render the application sidebar with navigation and settings."""
         with st.sidebar:
-            st.title(" AgentViz")
+            st.markdown("""
+                <div style='text-align: center; margin-bottom: 2rem;'>
+                    <h1 style='font-size: 2rem; font-weight: 600; margin-bottom: 0;'>🧠 AgentViz</h1>
+                    <p style='color: #666; margin-top: 0.5rem;'>Multi-Agent Reasoning Platform</p>
+                </div>
+            """, unsafe_allow_html=True)
+            
             st.markdown("---")
             
             # Navigation
-            st.subheader("Navigation")
+            st.markdown("### 🎯 Navigation")
             page = st.radio(
-                "Select Page",
+                "",  # Empty label for cleaner look
                 options=["playground", "analytics", "settings"],
-                format_func=lambda x: x.title(),
+                format_func=lambda x: {
+                    "playground": "🎮 Playground",
+                    "analytics": "📊 Analytics",
+                    "settings": "⚙️ Settings"
+                }[x],
                 key="current_page"
             )
             
             st.markdown("---")
             
-            # Model selection
-            st.subheader("Model Settings")
+            # Model selection with improved UI
+            st.markdown("### 🤖 Model Settings")
             provider = st.selectbox(
                 "Provider",
                 options=["groq", "openai", "anthropic"],
                 index=["groq", "openai", "anthropic"].index(self.session.model_state.provider),
+                format_func=lambda x: {
+                    "groq": "🚀 Groq",
+                    "openai": "🌟 OpenAI",
+                    "anthropic": "🔮 Anthropic"
+                }[x],
                 key="model_provider"
             )
             
@@ -71,7 +120,7 @@ class MainLayout:
             st.markdown("---")
             
             # Settings
-            st.subheader("Settings")
+            st.markdown("### ⚙️ Settings")
             
             # Theme toggle
             dark_mode = st.toggle(
@@ -102,7 +151,7 @@ class MainLayout:
             st.markdown("---")
             
             # System status
-            st.subheader("System Status")
+            st.markdown("### 📊 System Status")
             status_container = st.container()
             
             # Update status periodically if auto-refresh is enabled
@@ -158,7 +207,7 @@ class MainLayout:
         col1, col2, col3 = st.columns([2, 1, 1])
         
         with col1:
-            st.title("Agent Reasoning Playground")
+            st.markdown("<h1 class='main-header'>Agent Reasoning Playground</h1>", unsafe_allow_html=True)
             st.markdown("""
                 Explore and analyze multi-agent reasoning processes through
                 interactive visualizations and real-time metrics.
@@ -183,17 +232,21 @@ class MainLayout:
     def render_visualization_controls(self):
         """Render visualization control panel."""
         st.sidebar.markdown("---")
-        st.sidebar.subheader("Visualization Controls")
+        st.markdown("### 🎯 Visualization Controls")
         
         # View selection
-        view = st.sidebar.radio(
-            "Select View",
+        view = st.radio(
+            "",  # Empty label for cleaner look
             options=["exploration", "verification", "consensus"],
-            format_func=lambda x: x.title()
+            format_func=lambda x: {
+                "exploration": "🔍 Exploration",
+                "verification": "🔍 Verification",
+                "consensus": "🔍 Consensus"
+            }[x]
         )
         
         # Zoom controls
-        zoom = st.sidebar.slider(
+        zoom = st.slider(
             "Zoom Level",
             min_value=0.1,
             max_value=2.0,
@@ -205,7 +258,7 @@ class MainLayout:
             self.session.viz_state.zoom_level = zoom
         
         # Pan controls
-        col1, col2 = st.sidebar.columns(2)
+        col1, col2 = st.columns(2)
         with col1:
             pan_x = st.number_input(
                 "Pan X",

@@ -14,146 +14,137 @@ from typing import Dict, List, Optional
 from src.core.agents import AgentFactory, AgentRole, ModelProvider
 from src.core.types import ReasoningType
 from src.core.models import ModelConfig
-from src.visualization.components.shared.trees import TreeVisualizer
-from src.visualization.components.shared.graphs import GraphVisualizer
-from src.visualization.components.shared.metrics import MetricsVisualizer
-from src.visualization.components.exploration_view import ExplorationView
-from src.visualization.components.verification_view import VerificationView
-from src.visualization.components.consensus_view import ConsensusView
+from src.visualization.components.views.shared.tree_viz import TreeVisualizer
+from src.visualization.components.views.shared.graphs import GraphVisualizer
+from src.visualization.components.views.shared.metrics import MetricsVisualizer
+from src.visualization.components.views.exploration_view import ExplorationView
+from src.visualization.components.views.verification_view import VerificationView
+from src.visualization.components.views.consensus_view import ConsensusView
 
 def render_playground():
     """Render the main playground interface."""
-    st.title("Agent Reasoning Playground 🎮")
+    st.markdown("<h1 class='main-header'>🎮 Agent Reasoning Playground</h1>", unsafe_allow_html=True)
+    
+    # Welcome message and description
+    st.markdown("""
+        <div class='info-box'>
+            <h3 style='margin-top:0'>👋 Welcome to the Agent Reasoning Playground!</h3>
+            <p>
+                This is your space to explore and experiment with multi-agent reasoning systems. 
+                Create agent teams, observe their decision-making processes, and analyze their 
+                collaborative problem-solving abilities in real-time.
+            </p>
+        </div>
+    """, unsafe_allow_html=True)
     
     # Initialize visualizers
     tree_viz = TreeVisualizer()
     graph_viz = GraphVisualizer()
     metrics_viz = MetricsVisualizer()
     
-    # Sidebar configuration
-    with st.sidebar:
-        st.header("Configuration")
-        
-        # Agent configuration
-        st.subheader("Agent Setup")
-        num_agents = st.slider("Number of Agents", 1, 10, 3)
-        
-        # Model configuration
-        st.subheader("Model Settings")
-        model_provider = st.selectbox(
-            "Model Provider",
-            options=[
-                ModelProvider.GROQ,
-                ModelProvider.OPENAI,
-                ModelProvider.ANTHROPIC
-            ],
-            format_func=lambda x: x.value
-        )
-        
-        temperature = st.slider("Temperature", 0.0, 2.0, 0.7)
-        max_tokens = st.number_input("Max Tokens", 100, 4000, 1000)
-        
-        # Reasoning configuration
-        st.subheader("Reasoning Settings")
-        reasoning_type = st.selectbox(
-            "Reasoning Type",
-            options=[
-                ReasoningType.EXPLORATION,
-                ReasoningType.VERIFICATION,
-                ReasoningType.CONSENSUS
-            ],
-            format_func=lambda x: x.value
-        )
-        
-        # Advanced settings
-        with st.expander("Advanced Settings"):
-            top_p = st.slider("Top P", 0.0, 1.0, 0.9)
-            presence_penalty = st.slider("Presence Penalty", -2.0, 2.0, 0.0)
-            frequency_penalty = st.slider("Frequency Penalty", -2.0, 2.0, 0.0)
-            
-            st.subheader("Search Settings")
-            enable_search = st.checkbox("Enable Web Search", value=True)
-            if enable_search:
-                search_depth = st.slider("Search Depth", 1, 5, 3)
-                max_results = st.number_input("Max Results", 1, 20, 5)
-        
-        if st.button("Start Experiment"):
-            run_experiment(
-                num_agents=num_agents,
-                model_provider=model_provider,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                reasoning_type=reasoning_type,
-                advanced_settings={
-                    "top_p": top_p,
-                    "presence_penalty": presence_penalty,
-                    "frequency_penalty": frequency_penalty,
-                    "enable_search": enable_search,
-                    "search_depth": search_depth if enable_search else None,
-                    "max_results": max_results if enable_search else None
-                }
-            )
-    
     # Main content area
     col1, col2 = st.columns([2, 1])
     
     with col1:
+        st.markdown("<h2 class='section-header'>🔍 Experiment Visualization</h2>", unsafe_allow_html=True)
+        
         # Visualization tabs
-        tab1, tab2, tab3 = st.tabs([
-            "Reasoning Process",
-            "Agent Network",
-            "Metrics"
-        ])
+        tab1, tab2, tab3 = st.tabs(["🌳 Decision Tree", "🕸️ Agent Graph", "📊 Metrics"])
         
         with tab1:
-            st.subheader("Reasoning Process Visualization")
-            if reasoning_type == ReasoningType.EXPLORATION:
-                ExplorationView().render()
-            elif reasoning_type == ReasoningType.VERIFICATION:
-                VerificationView().render()
-            else:
-                ConsensusView().render()
-            
-            # Additional visualization controls
-            with st.expander("Visualization Controls"):
-                st.selectbox(
-                    "Layout",
-                    ["Tree", "Force-Directed", "Hierarchical"],
-                    key="viz_layout"
-                )
-                st.checkbox("Show Confidence Scores", value=True)
-                st.checkbox("Show Edge Weights", value=True)
-                st.slider("Update Interval (s)", 0.1, 5.0, 1.0)
-        
+            tree_viz.render()
         with tab2:
-            st.subheader("Agent Interaction Network")
-            container = st.container()
-            graph_viz.visualize_agent_network(
-                agents=st.session_state.get("agents", []),
-                interactions=st.session_state.get("interactions", []),
-                container=container
-            )
-        
+            graph_viz.render()
         with tab3:
-            st.subheader("Performance Metrics")
-            container = st.container()
-            metrics_viz.visualize_performance_metrics(
-                metrics=st.session_state.get("metrics", {}),
-                container=container
-            )
+            metrics_viz.render()
     
     with col2:
-        # Real-time monitoring
-        st.subheader("Live Updates")
-        status_container = st.container()
-        with status_container:
-            display_status()
+        st.markdown("<h2 class='section-header'>⚙️ Configuration</h2>", unsafe_allow_html=True)
         
-        # Agent details
-        st.subheader("Agent Details")
-        agent_container = st.container()
-        with agent_container:
-            display_agent_details()
+        with st.form("experiment_config"):
+            # Agent configuration
+            st.markdown("#### 🤖 Agent Setup")
+            num_agents = st.slider(
+                "Number of Agents",
+                min_value=1,
+                max_value=10,
+                value=3,
+                help="Select the number of agents to participate in the reasoning process"
+            )
+            
+            # Model configuration
+            st.markdown("#### 🧠 Model Settings")
+            model_provider = st.selectbox(
+                "Model Provider",
+                options=[
+                    ModelProvider.GROQ,
+                    ModelProvider.OPENAI,
+                    ModelProvider.ANTHROPIC
+                ],
+                format_func=lambda x: {
+                    ModelProvider.GROQ: "🚀 Groq",
+                    ModelProvider.OPENAI: "🌟 OpenAI",
+                    ModelProvider.ANTHROPIC: "🔮 Anthropic"
+                }[x]
+            )
+            
+            temperature = st.slider(
+                "Temperature",
+                min_value=0.0,
+                max_value=1.0,
+                value=0.7,
+                step=0.1,
+                help="Controls randomness in the model's output"
+            )
+            
+            # Advanced settings in expander
+            with st.expander("🔧 Advanced Settings"):
+                max_tokens = st.number_input(
+                    "Max Tokens",
+                    min_value=100,
+                    max_value=4000,
+                    value=1000,
+                    help="Maximum number of tokens in model responses"
+                )
+                
+                reasoning_type = st.selectbox(
+                    "Reasoning Type",
+                    options=list(ReasoningType),
+                    format_func=lambda x: {
+                        ReasoningType.EXPLORATION: "🔍 Exploration",
+                        ReasoningType.VERIFICATION: "✅ Verification",
+                        ReasoningType.CONSENSUS: "🤝 Consensus"
+                    }[x]
+                )
+            
+            # Submit button with loading state
+            submitted = st.form_submit_button(
+                "🚀 Start Experiment",
+                use_container_width=True,
+                type="primary"
+            )
+            
+            if submitted:
+                with st.spinner("Initializing experiment..."):
+                    run_experiment(
+                        num_agents=num_agents,
+                        model_provider=model_provider,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        reasoning_type=reasoning_type,
+                        advanced_settings={}
+                    )
+
+    # Status and monitoring section
+    st.markdown("<h2 class='section-header'>📊 Experiment Status</h2>", unsafe_allow_html=True)
+    
+    status_col1, status_col2 = st.columns(2)
+    
+    with status_col1:
+        display_status()
+    
+    with status_col2:
+        display_agent_details()
 
 def run_experiment(
     num_agents: int,

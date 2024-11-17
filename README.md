@@ -65,7 +65,7 @@ Agent Reasoning Beta is designed to:
 
 3. **Run the Application**
    ```bash
-   streamlit run src/app.py
+   streamlit run app.py
    ```
 
 ## 📚 Learning Resources

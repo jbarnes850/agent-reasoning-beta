@@ -1,9 +1,10 @@
 """Model configuration for the Agent Reasoning Beta platform."""
 
-from typing import Optional
-from pydantic import BaseModel, Field, validator
+from typing import Optional, Literal
+from pydantic import BaseModel, Field, validator, ConfigDict
+from typing_extensions import Annotated
 
-from core.types import ModelProvider
+from src.core.types import ModelProvider
 
 
 class ModelConfig(BaseModel):
@@ -65,22 +66,36 @@ class ModelConfig(BaseModel):
     def validate_model_name(cls, v, values):
         """Validate model name based on provider."""
         provider = values.get("provider")
-        if provider == ModelProvider.GROQ:
-            valid_models = {"llama-3.1-70b-versatile"}
-            if v not in valid_models:
-                raise ValueError(f"Invalid Groq model. Must be one of: {valid_models}")
-        elif provider == ModelProvider.OPENAI:
-            valid_models = {"gpt-4o", "gpt-4o-mini"}
-            if v not in valid_models:
-                raise ValueError(f"Invalid OpenAI model. Must be one of: {valid_models}")
-        elif provider == ModelProvider.ANTHROPIC:
-            valid_models = {"claude-3-5-sonnet-latest", "claude-3-5-haiku-latest"}
-            if v not in valid_models:
-                raise ValueError(f"Invalid Anthropic model. Must be one of: {valid_models}")
+        if not provider:
+            return v
+            
+        valid_models = {
+            ModelProvider.GROQ: [
+                "llama-3.1-70b-versatile",
+            ],
+            ModelProvider.OPENAI: [
+                "gpt-4o",
+                "gpt-4o-mini",
+            ],
+            ModelProvider.ANTHROPIC: [
+                "claude-3-5-sonnet-latest",
+                "claude-3-5-haiku-latest",
+            ],
+        }
+        
+        if v not in valid_models.get(provider, []):
+            raise ValueError(
+                f"Invalid model name '{v}' for provider {provider}. "
+                f"Valid models are: {', '.join(valid_models.get(provider, []))}"
+            )
         return v
     
     class Config:
         """Pydantic model configuration."""
+        model_config = ConfigDict(
+            validate_assignment=True,
+            protected_namespaces=()
+        )
         use_enum_values = True
         validate_assignment = True
 
@@ -88,36 +103,39 @@ class ModelConfig(BaseModel):
 class GroqConfig(ModelConfig):
     """Configuration for Groq models."""
     
-    provider: ModelProvider = Field(
+    provider: Literal[ModelProvider.GROQ] = Field(
         default=ModelProvider.GROQ,
-        const=True
+        description="Groq model provider"
     )
     model_name: str = Field(
-        default="llama-3.1-70b-versatile"
+        default="llama-3.1-70b-versatile",
+        description="Default Groq model"
     )
 
 
 class OpenAIConfig(ModelConfig):
     """Configuration for OpenAI models."""
     
-    provider: ModelProvider = Field(
+    provider: Literal[ModelProvider.OPENAI] = Field(
         default=ModelProvider.OPENAI,
-        const=True
+        description="OpenAI model provider"
     )
     model_name: str = Field(
-        default="gpt-4o"
+        default="gpt-4o",
+        description="Default OpenAI model"
     )
 
 
 class AnthropicConfig(ModelConfig):
     """Configuration for Anthropic models."""
     
-    provider: ModelProvider = Field(
+    provider: Literal[ModelProvider.ANTHROPIC] = Field(
         default=ModelProvider.ANTHROPIC,
-        const=True
+        description="Anthropic model provider"
     )
     model_name: str = Field(
-        default="claude-3-5-sonnet-latest"
+        default="claude-3-5-sonnet-latest",
+        description="Default Anthropic model"
     )
 
 
@@ -139,3 +157,8 @@ class SearchConfig(BaseModel):
         le=20,
         description="Maximum number of search results"
     )
+    
+    class Config:
+        """Pydantic model configuration."""
+        use_enum_values = True
+        validate_assignment = True

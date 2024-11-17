@@ -1,10 +1,11 @@
 """Agent configuration for the Agent Reasoning Beta platform."""
 
-from typing import Dict, Optional
-from pydantic import BaseModel, Field
+from typing import Dict, Optional, Any, Literal
+from pydantic import BaseModel, Field, ConfigDict
 
-from core.types import AgentRole, ModelProvider
+from src.core.types import AgentRole, ModelProvider
 from .model import ModelConfig, SearchConfig
+
 
 class SystemConfig(BaseModel):
     """System-wide configuration."""
@@ -35,6 +36,9 @@ class SystemConfig(BaseModel):
         default_factory=SearchConfig,
         description="Search configuration"
     )
+    
+    model_config = ConfigDict(frozen=True)
+
 
 class AgentConfig(BaseModel):
     """Configuration for individual agents."""
@@ -49,15 +53,18 @@ class AgentConfig(BaseModel):
     )
     search_enabled: bool = Field(
         default=True,
-        description="Whether to enable search capabilities"
+        description="Enable search capabilities"
     )
+    
+    model_config = ConfigDict(validate_assignment=True)
+
 
 class ExplorerConfig(AgentConfig):
     """Configuration for explorer agents."""
     
-    role: AgentRole = Field(
+    role: Literal[AgentRole.EXPLORER] = Field(
         default=AgentRole.EXPLORER,
-        const=True
+        description="Explorer agent role"
     )
     exploration_params: Dict[str, Any] = Field(
         default_factory=lambda: {
@@ -68,27 +75,23 @@ class ExplorerConfig(AgentConfig):
         description="MCTS exploration parameters"
     )
     
-    @validator("exploration_params")
+    @classmethod
     def validate_exploration_params(cls, v):
         """Validate exploration parameters."""
-        required_keys = {"c_puct", "max_depth", "min_visits"}
-        if not all(key in v for key in required_keys):
-            raise ValueError(f"Exploration params must contain all required keys: {required_keys}")
-        if v["c_puct"] <= 0:
-            raise ValueError("c_puct must be positive")
-        if v["max_depth"] < 1:
-            raise ValueError("max_depth must be at least 1")
-        if v["min_visits"] < 1:
-            raise ValueError("min_visits must be at least 1")
+        required = {"c_puct", "max_depth", "min_visits"}
+        if not all(k in v for k in required):
+            raise ValueError(f"Missing required exploration parameters: {required - set(v.keys())}")
         return v
+    
+    model_config = ConfigDict(validate_assignment=True)
 
 
 class VerifierConfig(AgentConfig):
     """Configuration for verifier agents."""
     
-    role: AgentRole = Field(
+    role: Literal[AgentRole.VERIFIER] = Field(
         default=AgentRole.VERIFIER,
-        const=True
+        description="Verifier agent role"
     )
     verification_threshold: float = Field(
         default=0.7,
@@ -96,17 +99,21 @@ class VerifierConfig(AgentConfig):
         le=1.0,
         description="Minimum confidence for verification"
     )
+    
+    model_config = ConfigDict(validate_assignment=True)
 
 
 class CoordinatorConfig(AgentConfig):
     """Configuration for coordinator agents."""
     
-    role: AgentRole = Field(
+    role: Literal[AgentRole.COORDINATOR] = Field(
         default=AgentRole.COORDINATOR,
-        const=True
+        description="Coordinator agent role"
     )
     min_paths: int = Field(
         default=3,
         ge=1,
         description="Minimum paths required for consensus"
     )
+    
+    model_config = ConfigDict(validate_assignment=True)

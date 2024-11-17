@@ -4,10 +4,10 @@ import pytest
 from unittest.mock import Mock, patch
 import json
 
-from src.core.models import ModelConfig
-from src.core.agents import Agent
-from src.core.reasoning import ReasoningEngine
-from src.core.types import AgentResponse, Confidence
+from agent_reasoning_beta.core.models import ModelConfig
+from agent_reasoning_beta.core.agents import Agent
+from agent_reasoning_beta.core.reasoning import ReasoningEngine
+from agent_reasoning_beta.core.types import AgentResponse, Confidence
 
 @pytest.mark.asyncio
 async def test_agent_initialization(mock_env, mock_config):
@@ -19,46 +19,42 @@ async def test_agent_initialization(mock_env, mock_config):
 
 @pytest.mark.asyncio
 async def test_reasoning_engine(mock_env, mock_config):
-    """Test reasoning engine initialization and basic functionality."""
-    engine = ReasoningEngine()
-    assert engine is not None
+    """Test reasoning engine functionality."""
+    config = ModelConfig(**mock_config["model"])
+    engine = ReasoningEngine(config)
     
-    # Test confidence calculation
-    confidence = Confidence(
-        score=0.8,
-        reasoning="Test reasoning",
-        evidence=["Test evidence"]
+    response = AgentResponse(
+        content="Test response",
+        confidence=Confidence.HIGH,
+        metadata={"test": "data"}
     )
-    assert confidence.score == 0.8
-    assert confidence.reasoning == "Test reasoning"
     
+    with patch.object(engine, '_process_response', return_value=response):
+        result = await engine.process_query("test query")
+        assert result == response
+        assert result.confidence == Confidence.HIGH
+        assert result.metadata["test"] == "data"
+
 @pytest.mark.asyncio
 async def test_agent_response_validation():
     """Test agent response validation."""
-    # Valid response
-    response = AgentResponse(
-        content="Test response",
-        confidence=Confidence(
-            score=0.9,
-            reasoning="High confidence due to test",
-            evidence=["Test evidence"]
-        ),
-        metadata={
-            "model": "test-model",
-            "tokens": 100
-        }
+    config = ModelConfig(
+        name="test",
+        provider="test",
+        model_id="test-model",
+        temperature=0.7
     )
-    assert response.content == "Test response"
-    assert response.confidence.score == 0.9
+    engine = ReasoningEngine(config)
     
-    # Invalid confidence score
+    # Test invalid response
     with pytest.raises(ValueError):
-        AgentResponse(
-            content="Test response",
-            confidence=Confidence(
-                score=1.5,  # Invalid: > 1.0
-                reasoning="Invalid confidence",
-                evidence=[]
-            ),
+        await engine.process_response(None)
+        
+    # Test empty content
+    with pytest.raises(ValueError):
+        response = AgentResponse(
+            content="",
+            confidence=Confidence.LOW,
             metadata={}
         )
+        await engine.process_response(response)

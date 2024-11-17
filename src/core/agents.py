@@ -19,7 +19,7 @@ from uuid import UUID, uuid4
 
 import aiohttp
 import backoff
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ConfigDict
 
 from .reasoning import ReasoningEngine
 from .types import (
@@ -32,6 +32,7 @@ from .types import (
     VisualizationData,
 )
 
+
 class AgentMessage(BaseModel):
     """Message format for inter-agent communication."""
     id: UUID = Field(default_factory=uuid4)
@@ -40,66 +41,77 @@ class AgentMessage(BaseModel):
     content: Dict[str, Any]
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     message_type: str
-    priority: int = 0
+    priority: int = Field(default=0)
+    
+    model_config = ConfigDict(protected_namespaces=())
+
 
 class AgentMetrics(BaseModel):
     """Metrics tracked for each agent."""
-    total_thoughts: int = 0
-    successful_verifications: int = 0
-    failed_verifications: int = 0
-    consensus_participations: int = 0
-    average_confidence: float = 0.0
-    total_processing_time: float = 0.0
-    last_active: datetime = Field(default_factory=datetime.utcnow)
-
-class BaseAgent(ABC):
-    """Abstract base class for all agents in the system."""
+    total_thoughts: int = Field(default=0)
+    successful_verifications: int = Field(default=0)
+    failed_verifications: int = Field(default=0)
+    consensus_participations: int = Field(default=0)
+    average_confidence: float = Field(default=0.0)
+    total_messages: int = Field(default=0)
     
-    def __init__(
-        self,
-        role: AgentRole,
-        model_provider: ModelProvider,
-        model_config: Optional[Dict[str, Any]] = None,
-    ):
-        self.id: UUID = uuid4()
-        self.role = role
-        self.model_provider = model_provider
-        self.model_config = model_config or {}
-        self.state = AgentState(
-            id=self.id,
-            role=role,
-            model_provider=model_provider,
-            model_config=self.model_config
-        )
-        self.metrics = AgentMetrics()
+    model_config = ConfigDict(validate_assignment=True)
+
+
+class BaseAgent(BaseModel, ABC):
+    """Abstract base class for all agents in the system."""
+    id: UUID = Field(default_factory=uuid4)
+    role: AgentRole
+    model_provider: ModelProvider
+    model_config: Dict[str, Any] = Field(default_factory=dict)
+    state: AgentState
+    metrics: AgentMetrics = Field(default_factory=AgentMetrics)
+    is_active: bool = Field(default=False)
+    last_thought: Optional[ThoughtNode] = Field(default=None)
+    
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    
+    def __init__(self, **data):
+        super().__init__(**data)
         self.message_queue: asyncio.Queue[AgentMessage] = asyncio.Queue()
         self.reasoning_engine = ReasoningEngine()
-        self._active = False
-        self._last_thought: Optional[ThoughtNode] = None
-        
+        self.state = AgentState(
+            id=self.id,
+            role=self.role,
+            model_provider=self.model_provider,
+            model_config=self.model_config
+        )
+
     @abstractmethod
     async def process_message(self, message: AgentMessage) -> None:
         """Process incoming message based on agent role."""
         pass
-        
+
     @abstractmethod
     async def generate_thought(self, context: Dict[str, Any]) -> ThoughtNode:
         """Generate next thought using LLM."""
         pass
-        
+
     async def start(self) -> None:
         """Start agent's processing loop."""
-        self._active = True
-        try:
-            await self._processing_loop()
-        except Exception as e:
-            self._active = False
-            raise
-            
+        self.is_active = True
+        asyncio.create_task(self.processing_loop())
+
     async def stop(self) -> None:
         """Stop agent's processing loop."""
-        self._active = False
-        
+        self.is_active = False
+
+    async def processing_loop(self) -> None:
+        """Main processing loop for the agent."""
+        while self.is_active:
+            try:
+                message = await self.message_queue.get()
+                await self.process_message(message)
+                self.message_queue.task_done()
+            except Exception as e:
+                # Log error but continue processing
+                continue
+
     async def send_message(
         self,
         receiver_id: Optional[UUID],
@@ -116,204 +128,128 @@ class BaseAgent(ABC):
             priority=priority
         )
         await self.message_queue.put(message)
-        
+
     @backoff.on_exception(backoff.expo, aiohttp.ClientError, max_tries=3)
-    async def _call_llm(self, prompt: str) -> str:
+    async def call_llm(self, prompt: str) -> str:
         """Make API call to LLM provider with exponential backoff."""
-        async with aiohttp.ClientSession() as session:
-            if self.model_provider == ModelProvider.GROQ:
-                return await self._call_groq(session, prompt)
-            elif self.model_provider == ModelProvider.OPENAI:
-                return await self._call_openai(session, prompt)
-            elif self.model_provider == ModelProvider.ANTHROPIC:
-                return await self._call_anthropic(session, prompt)
-            else:
-                raise ValueError(f"Unsupported model provider: {self.model_provider}")
-                
-    async def _processing_loop(self) -> None:
-        """Main processing loop for handling messages."""
-        while self._active:
-            try:
-                message = await self.message_queue.get()
-                await self.process_message(message)
-                self.message_queue.task_done()
-            except Exception as e:
-                # Log error but continue processing
-                continue
+        # Implementation depends on the model provider
+        raise NotImplementedError
+
 
 class ExplorerAgent(BaseAgent):
     """Agent specialized in MCTS exploration of reasoning paths."""
-    
-    def __init__(
-        self,
-        model_provider: ModelProvider,
-        model_config: Optional[Dict[str, Any]] = None,
-        exploration_params: Optional[Dict[str, Any]] = None
-    ):
-        super().__init__(
-            role=AgentRole.EXPLORER,
-            model_provider=model_provider,
-            model_config=model_config
-        )
-        self.exploration_params = exploration_params or {}
-        
+    exploration_params: Dict[str, Any] = Field(default_factory=dict)
+
+    def __init__(self, **data):
+        data["role"] = AgentRole.EXPLORER
+        super().__init__(**data)
+
     async def process_message(self, message: AgentMessage) -> None:
         """Process exploration-related messages."""
-        if message.message_type == "explore_request":
-            context = message.content.get("context", {})
-            root_thought = await self.generate_thought(context)
-            
-            # Perform MCTS exploration
-            path = await self.reasoning_engine.explore(
-                root_thought,
-                self.state,
-                num_simulations=self.exploration_params.get("num_simulations", 100)
-            )
-            
-            # Send results back
+        if message.message_type == "explore":
+            thought = await self.generate_thought(message.content)
             await self.send_message(
                 message.sender_id,
-                {"path": path.dict()},
+                {"thought": thought.dict()},
                 "exploration_result"
             )
-            
+
     async def generate_thought(self, context: Dict[str, Any]) -> ThoughtNode:
         """Generate next thought using LLM."""
-        prompt = self._create_exploration_prompt(context)
-        response = await self._call_llm(prompt)
-        
+        prompt = self.create_exploration_prompt(context)
+        response = await self.call_llm(prompt)
+        # Process response and create thought node
         return ThoughtNode(
             content=response,
-            confidence=self._calculate_confidence(response),
+            confidence=0.8,  # TODO: Implement proper confidence scoring
             reasoning_type=ReasoningType.MCTS
         )
-        
-    def _create_exploration_prompt(self, context: Dict[str, Any]) -> str:
+
+    def create_exploration_prompt(self, context: Dict[str, Any]) -> str:
         """Create prompt for exploration."""
-        return f"Given the context: {json.dumps(context)}\nExplore the next possible step in reasoning."
+        # TODO: Implement proper prompt creation
+        return "Explore the following context: " + json.dumps(context)
+
 
 class VerifierAgent(BaseAgent):
     """Agent specialized in verifying reasoning paths."""
-    
-    def __init__(
-        self,
-        model_provider: ModelProvider,
-        model_config: Optional[Dict[str, Any]] = None,
-        verification_threshold: float = 0.7
-    ):
-        super().__init__(
-            role=AgentRole.VERIFIER,
-            model_provider=model_provider,
-            model_config=model_config
-        )
-        self.verification_threshold = verification_threshold
-        
+    verification_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
+
+    def __init__(self, **data):
+        data["role"] = AgentRole.VERIFIER
+        super().__init__(**data)
+
     async def process_message(self, message: AgentMessage) -> None:
         """Process verification-related messages."""
-        if message.message_type == "verify_request":
-            path = ReasoningPath(**message.content["path"])
-            
-            # Perform verification
-            is_valid, confidence, notes = await self.reasoning_engine.verify(
-                path,
-                self.state
-            )
-            
-            # Update metrics
-            if is_valid:
-                self.metrics.successful_verifications += 1
-            else:
-                self.metrics.failed_verifications += 1
-                
-            # Send results back
+        if message.message_type == "verify":
+            thought = await self.generate_thought(message.content)
             await self.send_message(
                 message.sender_id,
-                {
-                    "is_valid": is_valid,
-                    "confidence": confidence,
-                    "notes": notes
-                },
+                {"thought": thought.dict()},
                 "verification_result"
             )
-            
+
     async def generate_thought(self, context: Dict[str, Any]) -> ThoughtNode:
         """Generate verification thought using LLM."""
-        prompt = self._create_verification_prompt(context)
-        response = await self._call_llm(prompt)
-        
+        prompt = self.create_verification_prompt(context)
+        response = await self.call_llm(prompt)
+        # Process response and create thought node
         return ThoughtNode(
             content=response,
-            confidence=self._calculate_confidence(response),
+            confidence=0.9,  # TODO: Implement proper confidence scoring
             reasoning_type=ReasoningType.VERIFICATION
         )
-        
-    def _create_verification_prompt(self, context: Dict[str, Any]) -> str:
+
+    def create_verification_prompt(self, context: Dict[str, Any]) -> str:
         """Create prompt for verification."""
-        return f"Verify the logical consistency of: {json.dumps(context)}"
+        # TODO: Implement proper prompt creation
+        return "Verify the following reasoning: " + json.dumps(context)
+
 
 class CoordinatorAgent(BaseAgent):
     """Agent specialized in building consensus among multiple reasoning paths."""
-    
-    def __init__(
-        self,
-        model_provider: ModelProvider,
-        model_config: Optional[Dict[str, Any]] = None,
-        min_paths: int = 3
-    ):
-        super().__init__(
-            role=AgentRole.COORDINATOR,
-            model_provider=model_provider,
-            model_config=model_config
-        )
-        self.min_paths = min_paths
-        self._collected_paths: List[ReasoningPath] = []
-        self._participating_agents: Set[UUID] = set()
-        
+    min_paths: int = Field(default=3, ge=1)
+    collected_paths: List[ReasoningPath] = Field(default_factory=list)
+    participating_agents: Set[UUID] = Field(default_factory=set)
+
+    def __init__(self, **data):
+        data["role"] = AgentRole.COORDINATOR
+        super().__init__(**data)
+
     async def process_message(self, message: AgentMessage) -> None:
         """Process consensus-related messages."""
-        if message.message_type == "consensus_contribution":
-            path = ReasoningPath(**message.content["path"])
-            self._collected_paths.append(path)
-            self._participating_agents.add(message.sender_id)
+        if message.message_type == "add_path":
+            self.collected_paths.append(message.content["path"])
+            self.participating_agents.add(message.sender_id)
             
-            # Check if we have enough paths
-            if len(self._collected_paths) >= self.min_paths:
-                consensus_path = await self.reasoning_engine.build_consensus(
-                    self._collected_paths,
-                    [self.state]  # In future, could include states of all participants
-                )
-                
-                # Broadcast consensus result
+            if len(self.collected_paths) >= self.min_paths:
+                thought = await self.generate_thought({"paths": self.collected_paths})
                 await self.send_message(
-                    None,  # Broadcast
-                    {"consensus_path": consensus_path.dict()},
-                    "consensus_result",
-                    priority=1
+                    None,  # Broadcast to all participating agents
+                    {"thought": thought.dict()},
+                    "consensus_result"
                 )
-                
-                # Reset collection
-                self._collected_paths = []
-                self._participating_agents = set()
-                
+
     async def generate_thought(self, context: Dict[str, Any]) -> ThoughtNode:
         """Generate consensus-related thought using LLM."""
-        prompt = self._create_consensus_prompt(context)
-        response = await self._call_llm(prompt)
-        
+        prompt = self.create_consensus_prompt(context)
+        response = await self.call_llm(prompt)
+        # Process response and create thought node
         return ThoughtNode(
             content=response,
-            confidence=self._calculate_confidence(response),
+            confidence=0.85,  # TODO: Implement proper confidence scoring
             reasoning_type=ReasoningType.CONSENSUS
         )
-        
-    def _create_consensus_prompt(self, context: Dict[str, Any]) -> str:
+
+    def create_consensus_prompt(self, context: Dict[str, Any]) -> str:
         """Create prompt for consensus building."""
-        return f"Build consensus among these perspectives: {json.dumps(context)}"
+        # TODO: Implement proper prompt creation
+        return "Build consensus from the following paths: " + json.dumps(context)
+
 
 class AgentFactory:
     """Factory for creating and managing agents."""
-    
-    _agent_types: Dict[AgentRole, Type[BaseAgent]] = {
+    agent_types: Dict[AgentRole, Type[BaseAgent]] = {
         AgentRole.EXPLORER: ExplorerAgent,
         AgentRole.VERIFIER: VerifierAgent,
         AgentRole.COORDINATOR: CoordinatorAgent,
@@ -328,8 +264,112 @@ class AgentFactory:
         **kwargs: Any
     ) -> BaseAgent:
         """Create an agent of the specified role."""
-        agent_class = cls._agent_types.get(role)
+        agent_class = cls.agent_types.get(role)
         if not agent_class:
             raise ValueError(f"Unsupported agent role: {role}")
             
-        return agent_class(model_provider, model_config, **kwargs)
+        return agent_class(model_provider=model_provider, model_config=model_config, **kwargs)
+
+
+class AgentManager:
+    """Manages the lifecycle and coordination of agents in the system."""
+    
+    def __init__(self):
+        """Initialize the agent manager."""
+        self.agents: Dict[UUID, BaseAgent] = {}
+        self.factory = AgentFactory()
+        self.lock = asyncio.Lock()
+    
+    async def create_agent(
+        self,
+        role: AgentRole,
+        model_provider: ModelProvider,
+        model_config: Optional[Dict[str, Any]] = None,
+        **kwargs: Any
+    ) -> UUID:
+        """Create a new agent with the specified configuration."""
+        async with self.lock:
+            agent = self.factory.create_agent(
+                role=role,
+                model_provider=model_provider,
+                model_config=model_config,
+                **kwargs
+            )
+            self.agents[agent.id] = agent
+            return agent.id
+    
+    def get_agent(self, agent_id: UUID) -> Optional[BaseAgent]:
+        """Get an agent by its ID."""
+        return self.agents.get(agent_id)
+    
+    def list_agents(self, role: Optional[AgentRole] = None) -> List[BaseAgent]:
+        """List all agents, optionally filtered by role."""
+        if role is None:
+            return list(self.agents.values())
+        return [agent for agent in self.agents.values() if agent.role == role]
+    
+    async def start_agent(self, agent_id: UUID) -> bool:
+        """Start an agent's processing loop."""
+        agent = self.get_agent(agent_id)
+        if agent:
+            await agent.start()
+            return True
+        return False
+    
+    async def stop_agent(self, agent_id: UUID) -> bool:
+        """Stop an agent's processing loop."""
+        agent = self.get_agent(agent_id)
+        if agent:
+            await agent.stop()
+            return True
+        return False
+    
+    async def send_message(
+        self,
+        sender_id: UUID,
+        receiver_id: Optional[UUID],
+        content: Dict[str, Any],
+        message_type: str,
+        priority: int = 0
+    ) -> bool:
+        """Send a message between agents."""
+        sender = self.get_agent(sender_id)
+        if not sender:
+            return False
+            
+        if receiver_id:
+            receiver = self.get_agent(receiver_id)
+            if not receiver:
+                return False
+        
+        message = AgentMessage(
+            sender_id=sender_id,
+            receiver_id=receiver_id,
+            content=content,
+            message_type=message_type,
+            priority=priority
+        )
+        
+        if receiver_id:
+            receiver = self.get_agent(receiver_id)
+            await receiver.message_queue.put(message)
+        else:
+            # Broadcast to all agents except sender
+            for agent in self.agents.values():
+                if agent.id != sender_id:
+                    await agent.message_queue.put(message)
+        return True
+    
+    async def stop_all(self):
+        """Stop all running agents."""
+        async with self.lock:
+            for agent in self.agents.values():
+                await agent.stop()
+    
+    def get_agent_states(self) -> Dict[UUID, AgentState]:
+        """Get the current state of all agents."""
+        return {agent_id: agent.state for agent_id, agent in self.agents.items()}
+    
+    def get_agent_metrics(self) -> Dict[UUID, AgentMetrics]:
+        """Get the metrics for all agents."""
+        return {agent_id: agent.metrics for agent_id, agent in self.agents.items()}

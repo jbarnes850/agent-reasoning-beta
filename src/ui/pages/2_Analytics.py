@@ -15,12 +15,12 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 from src.core.metrics import MetricsManager
-from src.visualization.components.shared.metrics import MetricsVisualizer
-from src.visualization.components.shared.graphs import GraphVisualizer
+from src.visualization.components.views.shared.graphs import GraphVisualizer
+from src.visualization.components.views.shared.metrics import MetricsVisualizer
 
 def render_analytics():
     """Render the analytics dashboard."""
-    st.title("Analytics Dashboard 📊")
+    st.title("Analytics Dashboard ")
     
     # Initialize visualizers
     metrics_viz = MetricsVisualizer()

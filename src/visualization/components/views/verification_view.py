@@ -19,8 +19,12 @@ import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
-from core.types import VerificationChain, Evidence, ProofNode
-from visualization.components.shared.trees import TreeVisualizer, TreeConfig
+from src.core.types import (
+    VerificationChain,
+    Evidence,
+    ProofNode,
+)
+from src.visualization.components.views.shared.trees import TreeVisualizer, TreeConfig
 
 class VerificationConfig(TreeConfig):
     """Configuration for verification visualization."""
@@ -399,3 +403,51 @@ class VerificationVisualizer(TreeVisualizer):
             return self.config.CONFIDENCE_COLORS["medium"]
         else:
             return self.config.CONFIDENCE_COLORS["low"]
+
+class VerificationView:
+    """Main verification view component."""
+    
+    def __init__(self):
+        """Initialize verification view."""
+        self.visualizer = VerificationVisualizer()
+    
+    def render(
+        self,
+        chain: Optional[VerificationChain] = None,
+        container: Optional[st.container] = None
+    ):
+        """
+        Render the verification view.
+        
+        Args:
+            chain: Verification chain to visualize
+            container: Streamlit container to render in
+        """
+        container = container or st.container()
+        
+        with container:
+            st.header("Verification View")
+            
+            if chain is None:
+                st.info("No verification data available. Start verification to analyze the reasoning process.")
+                return
+            
+            # Add verification controls
+            control_col1, control_col2 = st.columns(2)
+            with control_col1:
+                st.subheader("Visualization Controls")
+                show_proof_tree = st.checkbox("Show Proof Tree", value=True)
+                show_evidence = st.checkbox("Show Evidence Map", value=True)
+            
+            with control_col2:
+                st.subheader("Analysis Controls")
+                show_confidence = st.checkbox("Show Confidence Distribution", value=True)
+                show_timeline = st.checkbox("Show Timeline", value=True)
+            
+            # Create visualization container
+            viz_container = st.container()
+            self.visualizer.visualize_verification(
+                chain=chain,
+                container=viz_container,
+                title="Verification Analysis"
+            )

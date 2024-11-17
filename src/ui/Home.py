@@ -30,8 +30,8 @@ Welcome to the Agent Reasoning Beta platform! This platform provides tools for:
 ### Quick Links
 
 - [Documentation](docs/README.md)
-- [GitHub Repository](https://github.com/your-org/agent-reasoning-beta)
-- [Issue Tracker](https://github.com/your-org/agent-reasoning-beta/issues)
+- [GitHub Repository](https://github.com/jbarnes850/agent-reasoning-beta)
+- [Issue Tracker](https://github.com/jbarnes850/agent-reasoning-beta/issues)
 """)
 
 # System status

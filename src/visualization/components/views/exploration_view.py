@@ -16,8 +16,8 @@ import networkx as nx
 import plotly.graph_objects as go
 import streamlit as st
 
-from core.types import ThoughtNode
-from visualization.components.shared.trees import TreeVisualizer, TreeConfig
+from src.core.types import ThoughtNode
+from src.visualization.components.views.shared.trees import TreeVisualizer, TreeConfig
 
 class MCTSConfig(TreeConfig):
     """Configuration for MCTS visualization."""
@@ -189,3 +189,51 @@ class MCTSVisualizer(TreeVisualizer):
             
         root = [n for n, d in self._graph.in_degree() if d == 0][0]
         return max(len(path) for path in nx.all_simple_paths(self._graph, root))
+
+class ExplorationView:
+    """Main exploration view component."""
+    
+    def __init__(self):
+        """Initialize exploration view."""
+        self.visualizer = MCTSVisualizer()
+    
+    def render(
+        self,
+        root_node: Optional[ThoughtNode] = None,
+        container: Optional[st.container] = None
+    ):
+        """
+        Render the exploration view.
+        
+        Args:
+            root_node: Root node of the MCTS tree to visualize
+            container: Streamlit container to render in
+        """
+        container = container or st.container()
+        
+        with container:
+            st.header("Exploration View")
+            
+            if root_node is None:
+                st.info("No exploration data available. Start a new exploration to visualize the reasoning process.")
+                return
+            
+            # Add exploration controls
+            control_col1, control_col2 = st.columns(2)
+            with control_col1:
+                st.subheader("Visualization Controls")
+                show_confidence = st.checkbox("Show Confidence", value=True)
+                show_metrics = st.checkbox("Show Metrics", value=True)
+            
+            with control_col2:
+                st.subheader("Tree Controls")
+                max_depth = st.slider("Max Depth", min_value=1, max_value=10, value=5)
+                min_confidence = st.slider("Min Confidence", min_value=0.0, max_value=1.0, value=0.3)
+            
+            # Create visualization container
+            viz_container = st.container()
+            self.visualizer.visualize_mcts(
+                root_node=root_node,
+                container=viz_container,
+                title="MCTS Exploration"
+            )

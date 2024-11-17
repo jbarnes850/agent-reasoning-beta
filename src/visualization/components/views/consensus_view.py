@@ -16,7 +16,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
-from core.types import ConsensusMetrics, AgentVote
+from src.core.types import ConsensusMetrics, AgentVote
 
 class ConsensusConfig:
     """Configuration for consensus visualization."""
@@ -145,3 +145,51 @@ class ConsensusVisualizer:
         fig.add_trace(scatter, row=row, col=col)
         fig.update_yaxes(title_text="Agreement", range=[0, 1], row=row, col=col)
         fig.update_xaxes(title_text="Time", row=row, col=col)
+
+class ConsensusView:
+    """Main consensus view component."""
+    
+    def __init__(self):
+        """Initialize consensus view."""
+        self.visualizer = ConsensusVisualizer()
+    
+    def render(
+        self,
+        metrics: Optional[ConsensusMetrics] = None,
+        container: Optional[st.container] = None
+    ):
+        """
+        Render the consensus view.
+        
+        Args:
+            metrics: Consensus metrics to visualize
+            container: Streamlit container to render in
+        """
+        container = container or st.container()
+        
+        with container:
+            st.header("Consensus View")
+            
+            if metrics is None:
+                st.info("No consensus data available. Start consensus building to analyze agent agreement.")
+                return
+            
+            # Add consensus controls
+            control_col1, control_col2 = st.columns(2)
+            with control_col1:
+                st.subheader("Visualization Controls")
+                show_matrix = st.checkbox("Show Agreement Matrix", value=True)
+                show_path = st.checkbox("Show Resolution Path", value=True)
+            
+            with control_col2:
+                st.subheader("Analysis Controls")
+                min_agreement = st.slider("Min Agreement", min_value=0.0, max_value=1.0, value=0.5)
+                highlight_conflicts = st.checkbox("Highlight Conflicts", value=True)
+            
+            # Create visualization container
+            viz_container = st.container()
+            self.visualizer.visualize_consensus(
+                metrics=metrics,
+                container=viz_container,
+                title="Consensus Analysis"
+            )

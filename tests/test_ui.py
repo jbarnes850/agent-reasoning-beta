@@ -3,9 +3,10 @@
 import pytest
 from unittest.mock import Mock, patch
 import streamlit as st
-from src.ui.pages import Playground, Analytics, Settings
-from src.ui.state.session import SessionState
-from src.core.types import AgentRole, ModelProvider
+from agent_reasoning_beta.ui.pages.playground import Playground
+from agent_reasoning_beta.ui.pages.analytics import Analytics
+from agent_reasoning_beta.ui.pages.settings import Settings
+from agent_reasoning_beta.core.types import AgentResponse, Confidence
 
 @pytest.fixture
 def mock_st():
@@ -26,67 +27,143 @@ def mock_session_state():
 
 def test_playground_initialization(mock_st, mock_session_state):
     """Test playground page initialization."""
-    with patch("src.ui.pages.1_Playground.st.session_state", mock_session_state):
+    with patch("agent_reasoning_beta.ui.pages.playground.st.session_state", mock_session_state):
         playground = Playground()
         assert playground is not None
+        assert hasattr(playground, 'agent_selector')
+        assert hasattr(playground, 'query_input')
+        assert hasattr(playground, 'response_display')
         mock_st["title"].assert_called_once()
 
-def test_analytics_metrics(mock_st, mock_session_state, mock_config):
-    """Test analytics metrics calculation and display."""
-    with patch("src.ui.pages.2_Analytics.st.session_state", mock_session_state):
-        analytics = Analytics()
+@pytest.mark.asyncio
+async def test_playground_interaction(mock_st, mock_session_state):
+    """Test playground interaction flow."""
+    with patch("agent_reasoning_beta.ui.pages.playground.st.session_state", mock_session_state):
+        playground = Playground()
         
-        # Test metric calculation
-        metrics = analytics.calculate_metrics()
-        assert "total_experiments" in metrics
-        assert "avg_confidence" in metrics
-        assert "success_rate" in metrics
+        # Mock agent response
+        mock_response = AgentResponse(
+            content="Test response",
+            confidence=Confidence.HIGH,
+            metadata={"test": "data"}
+        )
+        
+        with patch('agent_reasoning_beta.core.agents.Agent.process_query', return_value=mock_response):
+            response = await playground.process_user_query("test query")
+            assert response.content == "Test response"
+            assert response.confidence == Confidence.HIGH
 
-def test_settings_form(mock_st, mock_session_state, mock_config):
-    """Test settings form validation and saving."""
-    with patch("src.ui.pages.3_Settings.st.session_state", mock_session_state):
+def test_analytics_page(mock_st, mock_session_state):
+    """Test analytics page functionality."""
+    with patch("agent_reasoning_beta.ui.pages.analytics.st.session_state", mock_session_state):
+        analytics = Analytics()
+        assert analytics is not None
+        assert hasattr(analytics, 'metrics_display')
+        assert hasattr(analytics, 'visualization_options')
+        
+        # Test visualization components
+        assert analytics.has_visualization('time_series')
+        assert analytics.has_visualization('heatmap')
+        assert analytics.has_visualization('scatter')
+
+def test_settings_page(mock_st, mock_session_state):
+    """Test settings page functionality."""
+    with patch("agent_reasoning_beta.ui.pages.settings.st.session_state", mock_session_state):
         settings = Settings()
+        assert settings is not None
+        assert hasattr(settings, 'model_settings')
+        assert hasattr(settings, 'api_settings')
+        
+        # Test settings form
+        form = settings.get_settings_form()
+        assert "model" in form
+        assert "api_keys" in form
         
         # Test API key validation
-        valid_key = "test-valid-key"
-        assert settings.validate_api_key(valid_key, ModelProvider.GROQ)
-        
-        # Test model configuration
-        model_config = settings.get_model_config(ModelProvider.GROQ)
-        assert model_config.provider == ModelProvider.GROQ
-        assert model_config.temperature <= 1.0
+        assert settings.validate_api_key("test-key", "groq")
+        assert not settings.validate_api_key("invalid-key", "groq")
 
-@pytest.mark.asyncio
-async def test_experiment_creation(mock_st, mock_session_state, mock_config):
-    """Test experiment creation and configuration."""
-    with patch("src.ui.pages.1_Playground.st.session_state", mock_session_state):
+def test_responsive_layout(mock_st, mock_session_state):
+    """Test UI responsive layout."""
+    with patch("agent_reasoning_beta.ui.pages.playground.st.session_state", mock_session_state):
+        playground = Playground()
+        analytics = Analytics()
+        settings = Settings()
+        
+        # Test layout configurations
+        assert playground.is_responsive()
+        assert analytics.is_responsive()
+        assert settings.is_responsive()
+        
+        # Test mobile layout
+        assert playground.get_mobile_layout() is not None
+        assert analytics.get_mobile_layout() is not None
+        assert settings.get_mobile_layout() is not None
+
+def test_theme_customization(mock_st, mock_session_state):
+    """Test UI theme customization."""
+    with patch("agent_reasoning_beta.ui.pages.playground.st.session_state", mock_session_state):
         playground = Playground()
         
-        # Test experiment configuration
-        config = {
-            "name": "Test Experiment",
-            "description": "Test description",
-            "agent_roles": [AgentRole.RESEARCHER, AgentRole.CRITIC],
-            "model_provider": ModelProvider.GROQ
-        }
+        # Test theme switching
+        playground.set_theme('dark')
+        assert playground.get_current_theme() == 'dark'
         
-        experiment = await playground.create_experiment(config)
-        assert experiment.name == config["name"]
-        assert len(experiment.agents) == len(config["agent_roles"])
+        playground.set_theme('light')
+        assert playground.get_current_theme() == 'light'
+        
+        # Test custom theme
+        custom_theme = {
+            'primary_color': '#FF0000',
+            'secondary_color': '#00FF00',
+            'font_family': 'Arial'
+        }
+        playground.set_custom_theme(custom_theme)
+        assert playground.get_current_theme() == 'custom'
 
-@pytest.mark.asyncio
-async def test_visualization_update(mock_st, mock_session_state, mock_config):
-    """Test visualization component updates."""
-    with patch("src.ui.pages.1_Playground.st.session_state", mock_session_state):
-        playground = Playground()
-        
-        # Test visualization update
-        mock_data = {
-            "nodes": [{"id": 1, "label": "Test"}],
-            "edges": [{"from": 1, "to": 2}]
-        }
-        
-        updated = playground.update_visualization(mock_data)
-        assert updated
-        # Verify visualization state
-        assert mock_session_state.visualization_data == mock_data
+def test_playground_page():
+    """Test playground page functionality."""
+    playground = Playground()
+    
+    # Mock streamlit container
+    container = Mock()
+    
+    # Test page rendering
+    playground.render(container)
+    container.title.assert_called_once()
+    
+    # Test input handling
+    with patch("streamlit.text_area") as mock_input:
+        mock_input.return_value = "Test input"
+        assert playground.get_user_input() == "Test input"
+
+def test_analytics_page():
+    """Test analytics page functionality."""
+    analytics = Analytics()
+    
+    # Mock data
+    metrics = {
+        "response_time": [1.2, 1.0, 1.5],
+        "success_rate": [1, 1, 0],
+        "confidence": [0.8, 0.9, 0.7]
+    }
+    
+    # Test metrics display
+    container = Mock()
+    analytics.display_metrics(metrics, container)
+    container.plotly_chart.assert_called()
+
+def test_settings_page():
+    """Test settings page functionality."""
+    settings = Settings()
+    
+    # Test default settings
+    assert settings.get_default_model() == "gpt-4"
+    assert settings.get_temperature() == 0.7
+    
+    # Test settings update
+    settings.update_model("claude-3")
+    assert settings.get_default_model() == "claude-3"
+    
+    settings.update_temperature(0.9)
+    assert settings.get_temperature() == 0.9

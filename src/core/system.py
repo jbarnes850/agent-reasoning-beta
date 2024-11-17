@@ -18,7 +18,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Set
 from uuid import UUID
 
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field, SecretStr, ConfigDict
 
 from .agents import AgentFactory, BaseAgent
 from .metrics import MetricsManager
@@ -34,6 +34,9 @@ class SystemState(BaseModel):
     api_keys: Dict[ModelProvider, SecretStr] = Field(default_factory=dict)
     config: SystemConfig
     start_time: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        arbitrary_types_allowed = True
 
 class SystemManager:
     """Manager for system-wide operations."""
