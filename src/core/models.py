@@ -15,7 +15,20 @@ import asyncio
 import json
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import (
+    Any,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Protocol,
+    Type,
+    TypedDict,
+    TypeVar,
+    Union,
+    cast,
+    overload,
+)
 from uuid import UUID
 
 import aiohttp
@@ -23,21 +36,44 @@ import backoff
 from anthropic import AsyncAnthropic
 from groq import AsyncGroq
 from openai import AsyncOpenAI
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, NonNegativeFloat, PositiveInt, ValidationError
 
-from .types import ModelProvider, ReasoningType, ThoughtNode
+from .types import (
+    Confidence,
+    ModelProvider,
+    ReasoningType,
+    ThoughtNode,
+)
 
+# Type aliases for improved readability
+ModelName = str
+APIKey = str
+ManagerKey = str
+TokenCount = int
+
+class TokenUsage(TypedDict):
+    """Type-safe token usage tracking."""
+    prompt_tokens: TokenCount
+    completion_tokens: TokenCount
+    total_tokens: TokenCount
+
+class Message(TypedDict):
+    """Type-safe message format."""
+    role: Literal["user", "assistant", "system"]
+    content: str
 
 class ModelResponse(BaseModel):
     """Structured response from LLM models."""
 
     content: str
-    confidence: float = Field(ge=0.0, le=1.0)
+    confidence: Confidence = Field(ge=0.0, le=1.0)
     metadata: Dict[str, Any] = Field(default_factory=dict)
-    latency: float
-    token_usage: Dict[str, int]
-    model_name: str
+    latency: NonNegativeFloat
+    token_usage: TokenUsage
+    model_name: ModelName
     timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+    model_config = ConfigDict(frozen=True)
 
 
 class PromptTemplate(BaseModel):
@@ -46,49 +82,67 @@ class PromptTemplate(BaseModel):
     template: str
     variables: Dict[str, str] = Field(default_factory=dict)
     reasoning_type: ReasoningType
-    max_tokens: int = 1000
-    temperature: float = Field(ge=0.0, le=2.0, default=0.7)
+    max_tokens: PositiveInt = Field(default=1000)
+    temperature: NonNegativeFloat = Field(ge=0.0, le=2.0, default=0.7)
 
-    def format(self, **kwargs: Any) -> str:
-        """Format the template with provided variables."""
+    def format(self, **kwargs: str) -> str:
+        """Format the template with provided variables.
+        
+        Args:
+            **kwargs: Variable key-value pairs to format the template
+            
+        Returns:
+            str: The formatted prompt
+            
+        Raises:
+            KeyError: If a required variable is missing
+            ValueError: If variable type is invalid
+        """
         variables = {**self.variables, **kwargs}
-        return self.template.format(**variables)
+        try:
+            return self.template.format(**variables)
+        except KeyError as e:
+            raise KeyError(f"Missing required variable: {e}")
+        except ValueError as e:
+            raise ValueError(f"Invalid variable format: {e}")
 
 
 class ModelConfig(BaseModel):
     """Configuration for model behavior."""
 
     provider: ModelProvider
-    model_name: str
-    temperature: float = Field(ge=0.0, le=2.0, default=0.7)
-    max_tokens: int = 1000
-    top_p: float = Field(ge=0.0, le=1.0, default=1.0)
+    model_name: ModelName
+    temperature: NonNegativeFloat = Field(ge=0.0, le=2.0, default=0.7)
+    max_tokens: PositiveInt = Field(default=1000)
+    top_p: NonNegativeFloat = Field(ge=0.0, le=1.0, default=1.0)
     presence_penalty: float = Field(ge=-2.0, le=2.0, default=0.0)
     frequency_penalty: float = Field(ge=-2.0, le=2.0, default=0.0)
-    timeout: float = 30.0
-    retry_attempts: int = 3
-    api_key: Optional[str] = None
-    cost_per_token: float = 0.0
+    timeout: PositiveInt = Field(default=30)
+    retry_attempts: PositiveInt = Field(default=3)
+    api_key: Optional[APIKey] = None
+    cost_per_token: NonNegativeFloat = Field(default=0.0)
+
+    model_config = ConfigDict(frozen=True)
 
 
 class BaseModelManager(ABC):
     """Abstract base class for model managers."""
 
-    def __init__(self, config: ModelConfig):
+    def __init__(self, config: ModelConfig) -> None:
         self.config = config
-        self._client = None
+        self._client: Optional[Union[AsyncGroq, AsyncOpenAI, AsyncAnthropic]] = None
         self._templates: Dict[ReasoningType, PromptTemplate] = {}
         self._initialize_templates()
 
     @abstractmethod
     async def initialize(self) -> None:
         """Initialize the model client."""
-        pass
+        ...
 
     @abstractmethod
     async def generate(self, prompt: str, **kwargs: Any) -> ModelResponse:
         """Generate response from the model."""
-        pass
+        ...
 
     def _initialize_templates(self) -> None:
         """Initialize prompt templates for different reasoning types."""
@@ -144,20 +198,19 @@ class RateLimitError(Exception):
     pass
 
 
-class ModelProvider:
-    """Base class for model providers."""
+class ModelProvider(Protocol):
+    """Protocol for model providers."""
 
-    def __init__(self, config: ModelConfig):
-        self.config = config
-        self._session: Optional[aiohttp.ClientSession] = None
+    config: ModelConfig
+    _session: Optional[aiohttp.ClientSession]
 
-    async def __aenter__(self):
-        self._session = aiohttp.ClientSession()
-        return self
+    async def __aenter__(self) -> "ModelProvider":
+        ...
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self._session:
-            await self._session.close()
+    async def __aexit__(self, exc_type: Optional[Type[BaseException]], 
+                       exc_val: Optional[BaseException], 
+                       exc_tb: Optional[Any]) -> None:
+        ...
 
     @backoff.on_exception(
         backoff.expo,
@@ -166,34 +219,12 @@ class ModelProvider:
         jitter=backoff.full_jitter,
     )
     async def call_model(self, prompt: str) -> ModelResponse:
-        """
-        Call model API with automatic retries and error handling.
-
-        Args:
-            prompt: Input prompt for the model
-
-        Returns:
-            ModelResponse containing the model's output
-
-        Raises:
-            RateLimitError: If rate limit is exceeded after retries
-            aiohttp.ClientError: For other API errors
-        """
-        try:
-            response = await self._make_api_call(prompt)
-            return response
-        except aiohttp.ClientResponseError as e:
-            if e.status == 429:  # Rate limit error
-                raise RateLimitError("Rate limit exceeded")
-            print(f"Model API error: {str(e)}")
-            raise
-        except Exception as e:
-            print(f"Unexpected error calling model: {str(e)}")
-            raise
+        """Call model API with automatic retries and error handling."""
+        ...
 
     async def _make_api_call(self, prompt: str) -> ModelResponse:
-        """Make the actual API call. Implemented by subclasses."""
-        raise NotImplementedError
+        """Make the actual API call."""
+        ...
 
 
 class GroqManager(BaseModelManager, ModelProvider):
@@ -337,8 +368,20 @@ class ModelRegistry:
         ModelProvider.ANTHROPIC: AnthropicManager,
     }
 
-    def __init__(self):
-        self._instances: Dict[str, BaseModelManager] = {}
+    def __init__(self) -> None:
+        self._instances: Dict[ManagerKey, BaseModelManager] = {}
+
+    @overload
+    async def get_manager(self, provider: Literal[ModelProvider.GROQ], config: ModelConfig) -> GroqManager:
+        ...
+
+    @overload
+    async def get_manager(self, provider: Literal[ModelProvider.OPENAI], config: ModelConfig) -> OpenAIManager:
+        ...
+
+    @overload
+    async def get_manager(self, provider: Literal[ModelProvider.ANTHROPIC], config: ModelConfig) -> AnthropicManager:
+        ...
 
     async def get_manager(
         self, provider: ModelProvider, config: ModelConfig

@@ -13,6 +13,7 @@ from typing import (
     Any,
     Dict,
     List,
+    Literal,
     Optional,
     Set,
     Tuple,
@@ -20,10 +21,11 @@ from typing import (
     TypeGuard,
     TypeVar,
     Union,
+    cast,
 )
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, NonNegativeFloat, PositiveInt
 
 # Type aliases for improved readability and type safety
 ThoughtNodeID: TypeAlias = UUID
@@ -32,11 +34,17 @@ ReasoningPathID: TypeAlias = UUID
 VisualizationID: TypeAlias = UUID
 
 # Domain-specific type aliases
-Confidence: TypeAlias = float
-ModelResponse: TypeAlias = Dict[str, Any]
+Confidence: TypeAlias = NonNegativeFloat  # Constrained to [0.0, 1.0]
+ModelResponse: TypeAlias = Dict[str, Any]  # TODO: Make this more specific based on provider responses
 
-# Generic type variables
+# Generic type variables for type-safe collections
 T = TypeVar("T")
+NodeType = TypeVar("NodeType", bound="ThoughtNode")
+
+# Type aliases for common data structures
+ThoughtGraph = Dict[Literal["nodes", "edges"], Union[List[ThoughtNode], List[Dict[str, Any]]]]
+MetricsData = Dict[str, List[Dict[Literal["timestamp", "value"], Union[str, float]]]]
+ConfigDict = Dict[str, Any]
 
 __all__ = [
     "ReasoningType",
@@ -94,10 +102,10 @@ class ReasoningType(str, Enum):
 class ThoughtNode(BaseModel):
     """Represents a single node in the reasoning tree."""
 
-    id: UUID = Field(default_factory=uuid4)
-    parent_id: Optional[UUID] = None
+    id: ThoughtNodeID = Field(default_factory=uuid4)
+    parent_id: Optional[ThoughtNodeID] = None
     content: str
-    confidence: float = Field(ge=0.0, le=1.0)
+    confidence: Confidence = Field(ge=0.0, le=1.0)
     reasoning_type: ReasoningType
     metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -106,35 +114,38 @@ class ThoughtNode(BaseModel):
 
 
 def is_valid_thought_node(obj: Any) -> TypeGuard[ThoughtNode]:
-    """Runtime type check for ThoughtNode."""
-    return (
-        isinstance(obj, dict)
-        and all(
-            hasattr(obj, attr)
-            for attr in [
-                "id",
-                "content",
-                "confidence",
-                "reasoning_type",
-                "metadata",
-                "created_at",
-            ]
-        )
-        and isinstance(obj.get("id"), UUID)
-        and isinstance(obj.get("content"), str)
-        and isinstance(obj.get("confidence"), (int, float))
-        and isinstance(obj.get("reasoning_type"), ReasoningType)
-        and isinstance(obj.get("metadata"), dict)
-        and isinstance(obj.get("created_at"), datetime)
+    """Runtime type check for ThoughtNode.
+    
+    Args:
+        obj: Any object to check
+        
+    Returns:
+        bool: True if obj is a valid ThoughtNode
+    """
+    if not isinstance(obj, dict):
+        return False
+        
+    required_attrs = {
+        "id": lambda x: isinstance(x, UUID),
+        "content": lambda x: isinstance(x, str),
+        "confidence": lambda x: isinstance(x, (int, float)) and 0.0 <= x <= 1.0,
+        "reasoning_type": lambda x: isinstance(x, ReasoningType),
+        "metadata": lambda x: isinstance(x, dict),
+        "created_at": lambda x: isinstance(x, datetime)
+    }
+    
+    return all(
+        attr in obj and check(obj[attr])
+        for attr, check in required_attrs.items()
     )
 
 
 class ReasoningPath(BaseModel):
     """Represents a complete path of reasoning from root to leaf."""
 
-    id: UUID = Field(default_factory=uuid4)
+    id: ReasoningPathID = Field(default_factory=uuid4)
     nodes: List[ThoughtNode]
-    total_confidence: float = Field(ge=0.0, le=1.0)
+    total_confidence: Confidence = Field(ge=0.0, le=1.0)
     verified: bool = False
     consensus_reached: bool = False
     metadata: Dict[str, Any] = Field(default_factory=dict)
@@ -145,7 +156,7 @@ class ReasoningPath(BaseModel):
 class AgentState(BaseModel):
     """Represents the current state of an agent."""
 
-    id: UUID = Field(default_factory=uuid4)
+    id: AgentID = Field(default_factory=uuid4)
     role: AgentRole
     current_task: Optional[str] = None
     active_reasoning_paths: List[ReasoningPath] = Field(default_factory=list)
@@ -170,7 +181,7 @@ class VisualizationData(BaseModel):
 class SystemConfig(BaseModel):
     """Global system configuration."""
 
-    max_agents: int = Field(default=10, ge=1)
+    max_agents: PositiveInt = Field(default=10)
     default_model_provider: ModelProvider = ModelProvider.GROQ
     logging_level: str = "INFO"
     visualization_refresh_rate: float = 1.0  # seconds
@@ -209,7 +220,7 @@ class Evidence(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     content: str
     source: str
-    confidence: float = Field(ge=0.0, le=1.0)
+    confidence: Confidence = Field(ge=0.0, le=1.0)
     metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -223,7 +234,7 @@ class ProofNode(BaseModel):
     parent_id: Optional[UUID] = None
     statement: str
     evidence: List[Evidence] = Field(default_factory=list)
-    confidence: float = Field(ge=0.0, le=1.0)
+    confidence: Confidence = Field(ge=0.0, le=1.0)
     verified: bool = False
     metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -249,8 +260,8 @@ class VerificationChain(BaseModel):
     evidence: List[Evidence] = Field(default_factory=list)
     proof_nodes: List[ProofNode] = Field(default_factory=list)
     evidence_map: Dict[UUID, List[Evidence]] = Field(default_factory=dict)
-    total_confidence: float = Field(ge=0.0, le=1.0)
-    mean_confidence: float = Field(ge=0.0, le=1.0)
+    total_confidence: Confidence = Field(ge=0.0, le=1.0)
+    mean_confidence: Confidence = Field(ge=0.0, le=1.0)
     status: VerificationStatus = Field(default=VerificationStatus.PENDING)
     metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -261,25 +272,25 @@ class VerificationChain(BaseModel):
 # Define ReasoningResult after all required types are defined
 ReasoningResult: TypeAlias = Union[ThoughtNode, ReasoningPath, List[ThoughtNode]]
 
-# Generic type variables for type-safe collections
-NodeType = TypeVar("NodeType", bound=ThoughtNode)
-
-# Type aliases for common data structures
-ThoughtGraph = Dict[str, Union[List[ThoughtNode], List[Dict]]]
-MetricsData = Dict[str, List[Dict[str, Union[str, float]]]]
-ConfigDict = Dict[str, Any]
-
 
 def validate_thought_graph(graph: ThoughtGraph) -> bool:
-    """Validate thought graph structure and types."""
+    """Validate thought graph structure and types.
+    
+    Args:
+        graph: The graph structure to validate
+        
+    Returns:
+        bool: True if the graph is valid
+    """
     if not isinstance(graph, dict):
         return False
 
-    if "nodes" not in graph or "edges" not in graph:
+    required_keys = {"nodes", "edges"}
+    if not all(key in graph for key in required_keys):
         return False
 
-    nodes = graph["nodes"]
-    edges = graph["edges"]
+    nodes = cast(List[Any], graph["nodes"])
+    edges = cast(List[Dict[str, Any]], graph["edges"])
 
     if not isinstance(nodes, list) or not isinstance(edges, list):
         return False
@@ -288,7 +299,14 @@ def validate_thought_graph(graph: ThoughtGraph) -> bool:
 
 
 def validate_metrics_data(metrics: MetricsData) -> bool:
-    """Validate metrics data structure and types."""
+    """Validate metrics data structure and types.
+    
+    Args:
+        metrics: The metrics data to validate
+        
+    Returns:
+        bool: True if the metrics data is valid
+    """
     if not isinstance(metrics, dict):
         return False
 
@@ -300,12 +318,14 @@ def validate_metrics_data(metrics: MetricsData) -> bool:
             if not isinstance(entry, dict):
                 return False
 
-            if "timestamp" not in entry or "value" not in entry:
+            required_keys = {"timestamp", "value"}
+            if not all(key in entry for key in required_keys):
                 return False
 
-            if not isinstance(entry["timestamp"], str) or not isinstance(
-                entry["value"], (int, float)
-            ):
+            timestamp = entry.get("timestamp")
+            value = entry.get("value")
+
+            if not isinstance(timestamp, str) or not isinstance(value, (int, float)):
                 return False
 
     return True
